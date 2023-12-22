@@ -1,0 +1,110 @@
+<?php
+
+namespace App\Models;
+
+use Carbon\Carbon;
+use App\Manager\Utility;
+use Illuminate\Support\Str;
+use Illuminate\Http\Request;
+use App\Manager\ImageUploadManager;
+use function Laravel\Prompts\select;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Database\Eloquent\Model;
+use App\Http\Requests\StoreClientLogoRequest;
+use App\Http\Requests\UpdateClientLogoRequest;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+
+class ClientLogo extends Model
+{
+    use HasFactory;
+
+    protected $guarded = [];
+
+    public const STATUS_ACTIVE = 1;
+    public const STATUS_INACTIVE = 2;
+
+    public const STATUS_LIST = [
+        self::STATUS_ACTIVE   => 'Show in Slider',
+        self::STATUS_INACTIVE => 'Not Show in Slider',
+    ];
+
+    public const PHOTO_UPLOAD_PATH = 'uploads/client_logo/';
+    public const PHOTO_UPLOAD_PATH_THUMB = 'uploads/client_logo/thumb/';
+    public const PHOTO_WIDTH = 300;
+    public const PHOTO_HEIGHT = 300;
+    public const PHOTO_WIDTH_THUMB = 150;
+    public const PHOTO_HEIGHT_THUMB = 150;
+
+    public function getClientLogoList(Request $request)
+    {
+        $paginate  = $request->input('per_page') ?? 10;
+        $query = self::query()->with(['user']);
+        if ($request->input('title')){
+            $query->where('title', 'like', '%'.$request->input('title').'%');
+        }
+        if ($request->input('status')|| $request ->input('status')===0){
+            $query->where('status', $request->input('status'));
+        }
+        if ($request->input('sort_by') && $request->input('sort_direction')) {
+            $query->orderBy($request->input('sort_by'), $request->input('sort_direction'));
+        } else {
+            $query->orderByDesc('id');
+        }
+        return $query->paginate($paginate);
+    }
+    public function createNewClientLogo(StoreClientLogoRequest $request)
+    {
+        return self::query()->create($this->prepareNewClientLogoData($request));
+    }
+
+    private function prepareNewClientLogoData(StoreClientLogoRequest $request)
+    {
+        return [
+            'title'   => $request->input('title'),
+            'status' => $request->input('status'),
+            'user_id' => Auth::id(),
+            'photo'  => (new ImageUploadManager)->file($request->file('photo'))
+                ->name(Utility::prepare_name($request->input('title')))
+                ->path(self::PHOTO_UPLOAD_PATH)
+                ->height(self::PHOTO_HEIGHT)
+                ->width(self::PHOTO_WIDTH)
+                ->upload(),
+        ];
+    }
+
+        public function updateClientLogoInfo(UpdateClientLogoRequest $request, ClientLogo $clientLogo)
+    {
+       $updateClientLogoInfoData = [
+            'title'        => $request->input('title') ?? $clientLogo->title,
+            'status'      => $request->input('status') ?? $clientLogo->status,
+            'user_id' => Auth::id()
+        ];
+        if($request->has('photo')){
+             ImageUploadManager::deletePhoto(self::PHOTO_UPLOAD_PATH, $clientLogo->photo);
+            $updateClientLogoInfoData['photo' ]   = (new ImageUploadManager)->file($request->file('photo'))
+                ->name(Utility::prepare_name($request->input('title')))
+                ->path(self::PHOTO_UPLOAD_PATH)
+                ->height(self::PHOTO_HEIGHT)
+                ->width(self::PHOTO_WIDTH)
+                ->upload();
+        }
+        $clientLogo->update($updateClientLogoInfoData);
+
+        return $clientLogo;
+
+    }
+        public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    /**
+     * @return MorphMany
+     */
+    final public function activity_logs():MorphMany
+    {
+        return $this->morphMany(ActivityLog::class, 'logable');
+    }
+
+}
